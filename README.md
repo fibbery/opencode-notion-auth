@@ -75,9 +75,10 @@ Notion's, the codes go in `api.id`:
 | `notion/gpt-5.4` | `oval-kumquat-medium` |
 
 Magpie shows a provider's first 24 models until some are ticked for it;
-`magpie provider models notion +<every id>` shows the lot. Changing the
-plugin's list makes magpie work its ticks out again, which can leave one:
-tick them once more after an update.
+`magpie provider models notion +<every id>` shows the lot. Taking the
+plugin out and adding it again — or a version that changes the list —
+makes magpie work the ticks out again, which can leave one model shown:
+tick them once more, and they keep.
 
 ## Reasoning effort
 
