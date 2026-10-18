@@ -6,6 +6,7 @@
   "main": "./index.mjs",
   "files": [
     "index.mjs",
+    "icon.svg",
     "notion-api.mjs",
     "notion-login.mjs",
     "browser-cookies.mjs",
@@ -37,6 +38,7 @@
     "test": "bun test"
   },
   "magpie": {
+    "icon": "https://raw.githubusercontent.com/fibbery/opencode-notion-auth/main/icon.svg",
     "maxConcurrency": 1
   }
 }
