@@ -1,5 +1,7 @@
 # opencode-notion-auth
 
+[![release](https://github.com/fibbery/opencode-notion-auth/actions/workflows/release.yml/badge.svg)](https://github.com/fibbery/opencode-notion-auth/actions/workflows/release.yml)
+
 <img src="icon.svg" alt="a keyhole" width="72" height="72" align="right">
 
 Notion AI in magpie and OpenCode. Provider id: `notion`.

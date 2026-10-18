@@ -1,6 +1,6 @@
 {
   "name": "opencode-notion-auth",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Notion AI in magpie and OpenCode: the account's own models, with tool calls emulated through a planner envelope",
   "type": "module",
   "main": "./index.mjs",
