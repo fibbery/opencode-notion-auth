@@ -15,8 +15,24 @@
     "README.md",
     "LICENSE"
   ],
-  "keywords": ["opencode", "opencode-plugin", "magpie", "notion", "notion-ai"],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "opencode-provider",
+    "magpie",
+    "notion",
+    "notion-ai"
+  ],
   "license": "MIT",
+  "author": "fibbery",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fibbery/opencode-notion-auth.git"
+  },
+  "homepage": "https://github.com/fibbery/opencode-notion-auth#readme",
+  "bugs": {
+    "url": "https://github.com/fibbery/opencode-notion-auth/issues"
+  },
   "scripts": {
     "test": "bun test"
   },

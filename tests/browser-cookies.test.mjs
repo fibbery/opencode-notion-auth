@@ -66,7 +66,7 @@ describe('cookieExpiry', () => {
 })
 
 describe('readProfileCookies', () => {
-  test('keeps the session cookies for Notion and nothing else', () => {
+  test('keeps the session cookies for Notion and nothing else', async () => {
     const dir = makeProfile([
       { plain: 'the-token' },
       { name: '_ga', plain: 'analytics' },
@@ -74,7 +74,7 @@ describe('readProfileCookies', () => {
       { host: '.example.com', plain: 'not-ours' },
     ])
     try {
-      const rows = readProfileCookies(dir, { password: PASSWORD, host: 'notion' })
+      const rows = await readProfileCookies(dir, { password: PASSWORD, host: 'notion' })
       expect(rows.map((row) => row.name).sort()).toEqual(['notion_browser_id', 'token_v2'])
       expect(rows.find((row) => row.name === 'token_v2')).toMatchObject({ host: '.notion.so', value: 'the-token' })
     } finally {
@@ -82,19 +82,19 @@ describe('readProfileCookies', () => {
     }
   })
 
-  test('skips an expired cookie', () => {
+  test('skips an expired cookie', async () => {
     const dir = makeProfile([{ plain: 'stale', expires: chromeEpoch(-3600) }])
     try {
-      expect(readProfileCookies(dir, { password: PASSWORD, host: 'notion' })).toEqual([])
+      expect(await readProfileCookies(dir, { password: PASSWORD, host: 'notion' })).toEqual([])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  test('skips a row whose value cannot be decrypted', () => {
+  test('skips a row whose value cannot be decrypted', async () => {
     const dir = makeProfile([{ encrypted: encrypt('.notion.so', 'x', 'another-password') }])
     try {
-      expect(readProfileCookies(dir, { password: PASSWORD, host: 'notion' })).toEqual([])
+      expect(await readProfileCookies(dir, { password: PASSWORD, host: 'notion' })).toEqual([])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

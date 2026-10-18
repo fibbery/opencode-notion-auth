@@ -20,6 +20,17 @@ magpie plugin login notion
 magpie provider test notion
 ```
 
+In OpenCode, in `opencode.json`, then `opencode auth login`:
+
+```json
+{ "plugin": ["opencode-notion-auth"] }
+```
+
+The plugin runs where magpie and OpenCode run their plugins: Bun. The
+browser-session sign-in reads its cookie database through `bun:sqlite`,
+imported only when that method is used — elsewhere the other two ways in
+still work.
+
 ## Sign in
 
 Three ways in, all saved as a cookie header in magpie's

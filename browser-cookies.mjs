@@ -6,7 +6,6 @@
 // Nothing here is sent anywhere: the cookie is read, checked against Notion,
 // and handed to magpie to keep as the account's sign-in.
 
-import { Database } from 'bun:sqlite'
 import { hasToken, isSessionCookie, sessionCookieHeader } from './cookies.mjs'
 import { execFile } from 'node:child_process'
 import { createDecipheriv, createHash, pbkdf2Sync } from 'node:crypto'
@@ -92,8 +91,13 @@ function profileDirs(browserDir) {
   return out
 }
 
-/** Reads one profile's Notion cookies, on a copy so a running browser is safe. */
-export function readProfileCookies(profileDir, { password, host }) {
+/**
+ * Reads one profile's Notion cookies, on a copy so a running browser is safe.
+ * `bun:sqlite` is imported here rather than at the top so that a host without
+ * it still loads the plugin: only this method goes without.
+ */
+export async function readProfileCookies(profileDir, { password, host }) {
+  const { Database } = await import('bun:sqlite')
   const temp = mkdtempSync(join(tmpdir(), 'notion-cookie-'))
   try {
     const copy = join(temp, 'Cookies')
@@ -152,7 +156,7 @@ export async function readBrowserSession({ host = 'notion', signal } = {}) {
       }
       let cookies = []
       try {
-        cookies = readProfileCookies(profile.dir, { password, host })
+        cookies = await readProfileCookies(profile.dir, { password, host })
       } catch (error) {
         tried.push(`${browser.name}/${profile.name}: ${error?.message ?? error}`)
         continue
