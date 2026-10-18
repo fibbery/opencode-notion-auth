@@ -1,12 +1,13 @@
 # opencode-notion-auth
 
-<img src="icon.svg" alt="a keyhole" width="72" height="72" align="right">
+<img src="icon.svg" alt="an N" width="72" height="72" align="right">
 
 Notion AI in magpie and OpenCode. Provider id: `notion`.
 
-The picture is a keyhole, drawn for this plugin: the session you already
-have is the whole of the access it lends an agent. No vendor's artwork is
-included.
+The picture is a letter N, drawn here as paths rather than set from a
+font: it says which service the plugin talks to. It is our own
+letterform, not a copy of Notion's page-and-N artwork, and no vendor's
+artwork is redistributed with this package.
 
 The plugin talks to the same API Notion's own AI panel uses, with the
 `token_v2` cookie a signed-in browser holds. There is no separate Notion
