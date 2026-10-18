@@ -1,0 +1,26 @@
+{
+  "name": "opencode-notion-auth",
+  "version": "0.1.0",
+  "description": "Notion AI in magpie and OpenCode: the account's own models, with tool calls emulated through a planner envelope",
+  "type": "module",
+  "main": "./index.mjs",
+  "files": [
+    "index.mjs",
+    "notion-api.mjs",
+    "notion-login.mjs",
+    "browser-cookies.mjs",
+    "cookies.mjs",
+    "ndjson.mjs",
+    "prompt.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": ["opencode", "opencode-plugin", "magpie", "notion", "notion-ai"],
+  "license": "MIT",
+  "scripts": {
+    "test": "bun test"
+  },
+  "magpie": {
+    "maxConcurrency": 1
+  }
+}
