@@ -20,6 +20,7 @@
     "opencode",
     "opencode-plugin",
     "opencode-provider",
+    "opencode-auth",
     "magpie",
     "notion",
     "notion-ai"
