@@ -1,12 +1,11 @@
 {
   "name": "opencode-notion-auth",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Notion AI in magpie and OpenCode: the account's own models, with tool calls emulated through a planner envelope",
   "type": "module",
   "main": "./index.mjs",
   "files": [
     "index.mjs",
-    "icon.svg",
     "notion-api.mjs",
     "notion-login.mjs",
     "browser-cookies.mjs",
@@ -39,7 +38,7 @@
     "test": "bun test"
   },
   "magpie": {
-    "icon": "https://raw.githubusercontent.com/fibbery/opencode-notion-auth/main/icon.svg",
+    "icon": "https://www.notion.so/images/logo-ios.png",
     "maxConcurrency": 1
   }
 }

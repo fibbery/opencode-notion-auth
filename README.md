@@ -2,13 +2,13 @@
 
 [![release](https://github.com/fibbery/opencode-notion-auth/actions/workflows/release.yml/badge.svg)](https://github.com/fibbery/opencode-notion-auth/actions/workflows/release.yml)
 
-<img src="icon.svg" alt="a keyhole" width="72" height="72" align="right">
+<img src="https://www.notion.so/images/logo-ios.png" alt="Notion" width="72" height="72" align="right">
 
 Notion AI in magpie and OpenCode. Provider id: `notion`.
 
-The picture is a keyhole, drawn for this plugin: the session you already
-have is the whole of the access it lends an agent. No vendor's artwork is
-included.
+The picture is Notion's own mark, linked from Notion's site rather than
+bundled here: it says which service the plugin speaks to. The mark stays
+theirs, and nothing here is affiliated with or endorsed by Notion.
 
 The plugin talks to the same API Notion's own AI panel uses, with the
 `token_v2` cookie a signed-in browser holds. There is no separate Notion
@@ -151,5 +151,6 @@ and whose authors deserve the credit:
   planner rather than as the agent. Its text and code were not taken, and
   the framing here is written independently.
 
-No third-party artwork is included: Notion's icons and any other asset
-belonging to someone else stay out.
+Nothing of anyone else's is redistributed: the picture magpie shows is a
+link to Notion's own asset, and no vendor artwork is bundled in this
+package.
