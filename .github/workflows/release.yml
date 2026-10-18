@@ -1,0 +1,107 @@
+# A tag ships a release: the tests must pass, the tag must be the version in
+# package.json, then npm gets the package and GitHub gets a release.
+#
+# npm publishing here uses trusted publishing (OIDC), so no token is kept in
+# this repository. It needs a one-time setup on npmjs.com: the package's
+# Settings → Trusted Publisher → GitHub Actions, with
+#   organization or user: fibbery
+#   repository:           opencode-notion-auth
+#   workflow filename:    release.yml
+#   allowed actions:      npm publish
+# Without it the npm job fails and the release is still made — publishing by
+# hand from a terminal works in the meantime.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: tag to release (must match package.json)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency: release
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: oven-sh/setup-bun@v2
+      - name: test
+        # the tests build their own fixtures; a real home is never read
+        run: HOME=$(mktemp -d) bun test
+
+  version:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - id: check
+        name: the tag and package.json have to agree
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          version="$(node -p 'require("./package.json").version')"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$tag" != "v$version" ]; then
+            echo "::error::tag $tag does not match package.json version $version"
+            exit 1
+          fi
+
+  npm:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # the OIDC exchange npm's trusted publishing uses
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # npm 11.5+, which speaks trusted publishing
+          registry-url: https://registry.npmjs.org
+      - name: publish, unless npm already has this version
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if npm view "$(node -p 'require("./package.json").name')@$version" version >/dev/null 2>&1; then
+            echo "npm already has $version"
+            exit 0
+          fi
+          npm publish --access public
+
+  release:
+    needs: [version, npm]
+    # a release is still worth making when npm's one-time setup is missing
+    if: always() && needs.version.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG is already released"
+            exit 0
+          fi
+          gh release create "$TAG" --title "$TAG" --generate-notes

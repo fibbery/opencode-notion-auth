@@ -137,6 +137,9 @@ describe('plugin', () => {
     expect(Object.keys(cfg.provider.notion.models)).toContain('opus-4.7')
     expect(cfg.provider.notion.models['opus-4.7'].id).toBe('apricot-sorbet-medium')
     expect(cfg.provider.notion.models['opus-4.7'].api).toEqual({ id: 'apricot-sorbet-medium' })
+    // magpie reads capabilities.reasoning for a model a hook returns, and the
+    // reasoning levels go unoffered without it
+    expect(cfg.provider.notion.models['opus-4.7'].capabilities.reasoning).toBe(true)
   })
 
   test('answers a non-streaming request', async () => {
@@ -257,6 +260,7 @@ describe('plugin', () => {
       { auth: { key: 'token-abc', metadata: {} } },
     )
     expect(Object.keys(models['opus-5.5'].variants)).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+    expect(models['opus-5.5'].capabilities).toMatchObject({ reasoning: true, toolcall: true, input: { text: true, image: false } })
     // a model with one level needs no choice: its code already carries it
     expect(models['opus-4.7'].variants).toBeUndefined()
     expect(models['auto'].variants).toBeUndefined()

@@ -55,6 +55,18 @@ function modelEntry({ name, code, context, efforts }, fallbackId) {
     api: { id: apiId },
     name,
     limit: { context: context || 200000, output: 32000 },
+    // A `models` hook's entry is taken as it comes, so the capability has to
+    // be here too: magpie reads capabilities.reasoning to decide whether the
+    // model reasons at all, and without it the reasoning levels a model
+    // serves are never offered. The flat fields beside it are what the
+    // config hook's own table is read for.
+    capabilities: {
+      temperature: true,
+      reasoning: true,
+      toolcall: true,
+      input: { text: true, image: false },
+      output: { text: true },
+    },
     reasoning: true,
     tool_call: true,
     modalities: { input: ['text'], output: ['text'] },
