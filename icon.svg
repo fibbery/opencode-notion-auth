@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img"
-     aria-label="An N, drawn here as paths: Notion very loosely, this plugin exactly">
+     aria-label="A keyhole: the session this plugin lends to an agent">
   <defs>
     <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="128" y2="128">
       <stop offset="0" stop-color="#0f9b8e"/>
@@ -7,6 +7,9 @@
     </linearGradient>
   </defs>
   <rect width="128" height="128" rx="30" fill="url(#tile)"/>
-  <path d="M46 98 V30 L82 98 V30" fill="none" stroke="#ffffff" stroke-width="12"
-        stroke-linecap="butt" stroke-linejoin="miter"/>
+  <circle cx="64" cy="64" r="40" fill="#ffffff"/>
+  <g fill="url(#tile)">
+    <circle cx="64" cy="52" r="15"/>
+    <path d="M57 60h14l-2.5 29.6c-.3 3.7-3.4 6.4-7 6.4h-0.1c-3.6 0-6.6-2.7-7-6.4L57 60Z"/>
+  </g>
 </svg>
