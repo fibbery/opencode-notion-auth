@@ -24,6 +24,9 @@
     "notion",
     "notion-ai"
   ],
+  "dependencies": {
+    "impit": "0.14.6"
+  },
   "license": "MIT",
   "author": "fibbery",
   "repository": {
