@@ -30,7 +30,12 @@ let impitLoading
 async function impitFetch(url, init) {
   if (!impitClient) {
     impitLoading ??= import('impit')
-      .then(({ Impit }) => (impitClient = new Impit({ browser: 'chrome', followRedirects: false })))
+      // impit's default timeout is 30s, which cut long replies mid-sentence:
+      // a 1397-character answer stopped at 30.14s with finish_reason "stop"
+      // while the stream itself was healthy. Notion serves well past 40s (a
+      // 1771-character reply came back whole at 42.32s once this was raised),
+      // so the ceiling was this client, not the service.
+      .then(({ Impit }) => (impitClient = new Impit({ browser: 'chrome', followRedirects: false, timeout: 180_000 })))
       .catch((error) => {
         impitLoading = undefined
         throw new NotionError(`impit could not load, so Notion cannot be reached: ${error?.message ?? error}`, {
