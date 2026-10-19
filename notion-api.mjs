@@ -20,6 +20,36 @@ export function apiURL(name) {
   return `${notionOrigin()}/api/v3/${name}`
 }
 
+// Notion checks the TLS fingerprint where a thread is created: a runtime's own
+// handshake — Bun's here — is answered 200 with `temporarily-unavailable`,
+// which the caller reads as an empty reply. impit speaks Chrome's TLS, so the
+// one call that has to look like a browser goes through it; the rest keep the
+// plain fetch.
+let impitClient
+let impitLoading
+async function impitFetch(url, init) {
+  if (!impitClient) {
+    impitLoading ??= import('impit')
+      .then(({ Impit }) => (impitClient = new Impit({ browser: 'chrome', followRedirects: false })))
+      .catch((error) => {
+        impitLoading = undefined
+        throw new NotionError(`impit could not load, so Notion cannot be reached: ${error?.message ?? error}`, {
+          status: 503,
+        })
+      })
+    await impitLoading
+  }
+  try {
+    return await impitClient.fetch(String(url), init)
+  } catch (error) {
+    // Some impit builds refuse the per-request redirect option; the shared
+    // client already does not follow redirects, so dropping it is safe.
+    if (!/redirect/i.test(String(error?.message ?? ''))) throw error
+    const { redirect, ...withoutRedirect } = init
+    return impitClient.fetch(String(url), withoutRedirect)
+  }
+}
+
 /** The version header Notion's own bundle reports, read off its login page. */
 export async function fetchClientVersion({ signal, fetchImpl = fetch } = {}) {
   try {
@@ -290,7 +320,7 @@ export function buildConfigValue({ notionModel = '', webSearch = false, readOnly
     enableScriptAgentMcpServers: false,
     enableScriptAgentMail: true,
     enableScriptAgentCalendar: true,
-    enableScriptAgentCustomToolCalling: false,
+    enableScriptAgentCustomToolCalling: true,
     enableCreateAndRunThread: true,
     enableSoftwareFactoryPage: false,
     enableAgentGenerateImage: false,
@@ -408,7 +438,8 @@ export async function runInferenceTranscript(
     threadParentPointer: { table: 'space', id: account.spaceId, spaceId: account.spaceId },
   }
 
-  const res = await fetchImpl(apiURL('runInferenceTranscript'), {
+  const runFetch = fetchImpl === fetch ? impitFetch : fetchImpl
+  const res = await runFetch(apiURL('runInferenceTranscript'), {
     method: 'POST',
     headers: apiHeaders(account, { accept: 'application/x-ndjson', referer: `${notionOrigin()}/ai` }),
     body: JSON.stringify(body),
