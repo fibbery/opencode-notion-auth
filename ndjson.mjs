@@ -11,6 +11,8 @@
 // and its `p` a JSON pointer: "/s/-" appends a step, "/s/<i>/value/<j>/content"
 // touches one value of one step, "/s/<i>/finishedAt" ends it.
 
+import { assertNoUpstreamError } from './upstream-error.mjs'
+
 const STEP_PREFIX = /^\/s\/(\d+)(\/[\s\S]*)?$/
 
 /** A stream of bytes → complete lines, without holding a partial one. */
@@ -103,9 +105,10 @@ function applyPatchStart(state, line) {
 
 function messageIDsOf(recordMap, threadId) {
   const threads = recordMap?.thread ?? {}
-  const order = threadId && threads[threadId] ? [threadId, ...Object.keys(threads).filter((id) => id !== threadId)] : Object.keys(threads)
+  const order = threadId ? [threadId] : Object.keys(threads).slice(0, 1)
   for (const id of order) {
-    const value = recordMap?.thread?.[id]?.value?.value
+    const raw = threads[id]
+    const value = raw?.value?.value ?? raw?.value ?? raw
     if (Array.isArray(value?.messages)) return value.messages
   }
   return []
@@ -115,12 +118,14 @@ function messageIDsOf(recordMap, threadId) {
  * The thread's own record of the turn, which answers with the finished text
  * even when the patches did not add up to one.
  */
-export function readRecordMap(recordMap, threadId) {
+export function readRecordMap(recordMap, threadId, excludedIds) {
   const messages = recordMap?.thread_message ?? {}
   let text = ''
   let reasoning = ''
   for (const id of messageIDsOf(recordMap, threadId)) {
-    const step = messages?.[id]?.value?.value?.step
+    if (excludedIds?.has(id)) continue
+    const raw = messages[id]
+    const step = (raw?.value?.value ?? raw?.value ?? raw)?.step
     if (!step || step.type !== 'agent-inference') continue
     const parts = Array.isArray(step.value) ? step.value : []
     let stepText = ''
@@ -287,6 +292,7 @@ function applyAgentInference(state, line) {
 
 /** Applies one parsed NDJSON object; true when the reply's text may have moved. */
 export function applyTranscriptLine(state, line) {
+  assertNoUpstreamError(line, { threadId: state.threadId, excludedIds: state.excludedIds })
   if (!line || typeof line !== 'object') return false
   state.lineCount += 1
   switch (line.type) {
@@ -302,7 +308,7 @@ export function applyTranscriptLine(state, line) {
     case 'agent-inference':
       return applyAgentInference(state, line)
     case 'record-map': {
-      const found = readRecordMap(line.recordMap, state.threadId)
+      const found = readRecordMap(line.recordMap, state.threadId, state.excludedIds)
       const changed = Boolean(found.text && found.text !== state.recordText)
       state.recordText = found.text
       state.recordReasoning = found.reasoning
@@ -327,6 +333,7 @@ function stepText(step, kind) {
 export function transcriptText(state) {
   for (let index = state.steps.length - 1; index >= 0; index -= 1) {
     const step = state.steps[index]
+    if (state.excludedIds?.has(step?.id)) continue
     if (step.type !== 'agent-inference') continue
     const text = stepText(step, 'text')
     if (text.trim()) return text
@@ -339,6 +346,7 @@ export function transcriptReasoning(state) {
   const fromRecord = () => state.recordReasoning || ''
   for (let index = state.steps.length - 1; index >= 0; index -= 1) {
     const step = state.steps[index]
+    if (state.excludedIds?.has(step?.id)) continue
     if (step.type !== 'agent-inference') continue
     const text = stepText(step, 'reasoning')
     if (text.trim()) return text
@@ -347,9 +355,12 @@ export function transcriptReasoning(state) {
 }
 
 export function transcriptFinished(state) {
+  const text = transcriptText(state)
+  if (state.recordText?.trim() && state.recordText === text) return true
   for (let index = state.steps.length - 1; index >= 0; index -= 1) {
     const step = state.steps[index]
-    if (step.type === 'agent-inference' && step.completed) return true
+    if (state.excludedIds?.has(step?.id)) continue
+    if (step.type === 'agent-inference' && stepText(step, 'text').trim()) return step.completed
   }
   return false
 }

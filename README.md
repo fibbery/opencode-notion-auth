@@ -88,8 +88,8 @@ Each model says which levels it serves, and the plugin offers them as
 variants. The level rides in the `config` step of the request as
 `reasoningEffort`, from either the model's variant (`notion/opus-5.5:high`)
 or a `reasoning_effort` field. `ultra` is sent as `max`; a level the model
-does not serve is left out. Notion's thinking arrives as a signature with
-no text, so no agent shows its reasoning.
+does not serve is left out. When Notion supplies reasoning text it is
+forwarded before the final answer; signature-only parts have no text to show.
 
 ## Tool calls
 
@@ -122,7 +122,62 @@ produced one, with 3–13 s a turn. That is not a success rate, only what a
 few runs looked like; treat the emulation as suited to light work rather
 than to a main agent loop.
 
+## Inference failures and cancellation
+
+Upstream error steps are reported as failures rather than empty successful
+answers. Buffered failures return HTTP 502; streams emit an error event without
+a successful finish reason. Empty output and EOF before assistant completion
+also fail visibly. Cancelling a request or its response stream cancels the
+locked upstream reader.
+
 ## Notes
+
+### Persisted conversations, live search and usage
+
+See [validation and limits](docs/continuity-validation.md) for the tested client
+configuration and the scope of the live checks.
+
+For magpie clients with a conversation ID, `chat.headers` forwards that ID to
+the provider as `x-notion-session`. The first request saves a Notion workflow;
+subsequent requests append only new messages or tool results to that workflow.
+Different accounts and client conversations are isolated. Normal model,
+effort, instruction and tool changes update the existing workflow; they do
+not create a new Notion chat. Configuration updates reuse the original config
+step ID. Interleaved helper/title/suggestion calls keep separate accepted
+history prefixes, so they do not replace the coding task's history pointer.
+Billing-header changes do not invalidate history. Rewritten/compacted history
+is synchronized into the existing workflow. Requests in one conversation run
+in order. Failed or interrupted
+turns invalidate the saved workflow instead of automatically replaying them.
+Clients without a conversation ID keep the full-context behavior.
+
+Live web search is enabled by default (`notion_web_search: false` disables it
+for direct compatible requests). Notion performs server web searches, while
+local files and commands still require the client's tools and permissions.
+Tool calling remains the text-envelope emulation described above.
+
+Completed inference records provide real token counters and actual model IDs.
+`usage` includes cache reads/writes; the `notion` response extension retains
+raw counters, model IDs, server tool names and observed credit deltas. Missing
+usage is marked `unknown` and omitted, rather than invented as zero. Notion's
+`inputTokens` includes cache reads but excludes cache creation, so compatible
+`prompt_tokens` adds the created tokens before the gateway splits the cache.
+These counters are not a price quote; Claude Code's USD estimate is not a
+Notion invoice.
+
+State and diagnostics are stored under
+`$XDG_CACHE_HOME/magpie/notion-sessions` (otherwise
+`~/.cache/magpie/notion-sessions`), overridable with `NOTION_SESSION_DIR`.
+They contain conversation IDs, message hashes and counters, with no document
+text or credentials. Diagnostics distinguish `create` from `resume` and report
+sent/avoided prompt characters. Persisting a workflow also retains its
+conversation in Notion; local state is not the only place that context lives.
+Up to 64 accepted history prefixes and context fingerprints are retained for
+branch matching. Helper contexts are explicitly labelled within the shared
+Notion conversation; their messages are also saved on Notion. Sending less
+context avoids duplicate transmission, but Notion still processes
+its saved history and framework context. Credit or billing reductions are not
+guaranteed.
 
 `getAvailableModels` and `runInferenceTranscript` are internal endpoints
 of Notion's web app, names and payloads included. They can change without

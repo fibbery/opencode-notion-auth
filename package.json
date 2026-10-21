@@ -11,6 +11,10 @@
     "browser-cookies.mjs",
     "cookies.mjs",
     "ndjson.mjs",
+    "transport.mjs",
+    "upstream-error.mjs",
+    "sessions.mjs",
+    "usage.mjs",
     "prompt.mjs",
     "README.md",
     "LICENSE"
@@ -36,6 +40,9 @@
   },
   "scripts": {
     "test": "bun test"
+  },
+  "dependencies": {
+    "impit": "0.14.6"
   },
   "magpie": {
     "icon": "https://www.notion.so/images/logo-ios.png",

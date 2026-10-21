@@ -61,7 +61,7 @@ describe('buildPrompt', () => {
       { role: 'user', content: 'third' },
     ])
     expect(built.prompt).toContain('<previous_message>\nfirst\n</previous_message>')
-    expect(built.prompt.endsWith('Conversation:\n<previous_message>\nfirst\n</previous_message>\n\n<previous_message>\nsecond\n</previous_message>\n\nthird')).toBe(true)
+    expect(built.prompt).toContain('Conversation:\n<operator_conversation>\n<previous_message>\nfirst\n</previous_message>\n\n<previous_message>\nsecond\n</previous_message>\n\nthird\n</operator_conversation>')
   })
 
   test('reads content parts, and says an image was attached', () => {

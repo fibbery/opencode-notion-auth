@@ -159,7 +159,7 @@ describe('plugin', () => {
     expect(call.headers['x-notion-active-user-header']).toBe('user-1')
     expect(call.body.spaceId).toBe('space-1')
     expect(call.body.createThread).toBe(true)
-    expect(call.body.transcript.at(-1).value[0][0]).toContain('Conversation:\nhi')
+    expect(call.body.transcript.at(-1).value[0][0]).toContain('Conversation:\n<operator_conversation>\nhi\n</operator_conversation>')
     expect(call.body.transcript.at(-1).value[0][0]).toContain('You plan for a coding agent')
     // the discovered account is kept, so the next request skips discovery
     expect(saved[0].body.metadata.spaceId).toBe('space-1')
