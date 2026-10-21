@@ -45,7 +45,7 @@ for (const content of ['', '  \n\t']) {
 test('normal assistant text and reasoning survive parsing', async () => {
   const event = answer('A complete answer. OK-END')
   event.value.unshift({ type: 'thinking', content: 'Reasoning' })
-  expect(await _internal.consumeTranscript(ndjson(event), null)).toEqual({ text: 'A complete answer. OK-END', reasoning: 'Reasoning' })
+  expect(await _internal.consumeTranscript(ndjson(event), null)).toMatchObject({ text: 'A complete answer. OK-END', reasoning: 'Reasoning', usageStatus: 'unknown' })
 })
 
 test('record-map backfill survives historical errors in another thread', async () => {
@@ -95,6 +95,17 @@ test('SSE failure after partial text emits error without a successful finish', a
     expect(text).toContain('"code":"temporarily-unavailable"')
     expect(text).not.toContain('"finish_reason":"stop"')
     expect(text).toEndWith('data: [DONE]\n\n')
+  })
+})
+
+test('tool-enabled stream emits reasoning before final answer for Claude Code', async () => {
+  const event = answer('Visible final answer')
+  event.value.unshift({ type: 'thinking', content: 'Earlier reasoning' })
+  await localProvider(() => new Response(ndjson(event)), async provider => {
+    const response = await provider.fetch('', { body: JSON.stringify({ messages: [], stream: true, tools: [{ type: 'function', function: { name: 'Read', parameters: {} } }] }) })
+    const stream = await response.text()
+    expect(stream.indexOf('"reasoning_content":"Earlier reasoning"')).toBeLessThan(stream.indexOf('"content":"Visible final answer"'))
+    expect(stream).toContain('"finish_reason":"stop"')
   })
 })
 
@@ -155,6 +166,16 @@ test('reader stream timeout after partial text cannot return success', async () 
     timer = setTimeout(() => c.error(new Error('local stream timeout')), 10)
   }, cancel() { clearTimeout(timer) } })
   await expect(_internal.consumeTranscript(stream, null)).rejects.toThrow('local stream timeout')
+})
+
+test('failed native dependency maps to HTTP 503 through the public provider', () => {
+  const fixture = new URL('./fixtures/dependency-failure.mjs', import.meta.url)
+  const child = Bun.spawnSync([process.execPath, Bun.fileURLToPath(fixture)], { env: { ...process.env, NOTION_API_BASE: 'http://127.0.0.1:1' } })
+  expect(child.exitCode).toBe(0)
+  expect(child.stderr.toString()).toBe('')
+  const result = JSON.parse(child.stdout.toString())
+  expect(result.status).toBe(503)
+  expect(result.body.error.message).toBe('Notion browser transport could not load')
 })
 
 test('completed text tool envelope still becomes a tool call', async () => {

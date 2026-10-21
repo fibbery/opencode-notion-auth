@@ -118,11 +118,12 @@ function messageIDsOf(recordMap, threadId) {
  * The thread's own record of the turn, which answers with the finished text
  * even when the patches did not add up to one.
  */
-export function readRecordMap(recordMap, threadId) {
+export function readRecordMap(recordMap, threadId, excludedIds) {
   const messages = recordMap?.thread_message ?? {}
   let text = ''
   let reasoning = ''
   for (const id of messageIDsOf(recordMap, threadId)) {
+    if (excludedIds?.has(id)) continue
     const raw = messages[id]
     const step = (raw?.value?.value ?? raw?.value ?? raw)?.step
     if (!step || step.type !== 'agent-inference') continue
@@ -291,7 +292,7 @@ function applyAgentInference(state, line) {
 
 /** Applies one parsed NDJSON object; true when the reply's text may have moved. */
 export function applyTranscriptLine(state, line) {
-  assertNoUpstreamError(line, { threadId: state.threadId })
+  assertNoUpstreamError(line, { threadId: state.threadId, excludedIds: state.excludedIds })
   if (!line || typeof line !== 'object') return false
   state.lineCount += 1
   switch (line.type) {
@@ -307,7 +308,7 @@ export function applyTranscriptLine(state, line) {
     case 'agent-inference':
       return applyAgentInference(state, line)
     case 'record-map': {
-      const found = readRecordMap(line.recordMap, state.threadId)
+      const found = readRecordMap(line.recordMap, state.threadId, state.excludedIds)
       const changed = Boolean(found.text && found.text !== state.recordText)
       state.recordText = found.text
       state.recordReasoning = found.reasoning
@@ -332,6 +333,7 @@ function stepText(step, kind) {
 export function transcriptText(state) {
   for (let index = state.steps.length - 1; index >= 0; index -= 1) {
     const step = state.steps[index]
+    if (state.excludedIds?.has(step?.id)) continue
     if (step.type !== 'agent-inference') continue
     const text = stepText(step, 'text')
     if (text.trim()) return text
@@ -344,6 +346,7 @@ export function transcriptReasoning(state) {
   const fromRecord = () => state.recordReasoning || ''
   for (let index = state.steps.length - 1; index >= 0; index -= 1) {
     const step = state.steps[index]
+    if (state.excludedIds?.has(step?.id)) continue
     if (step.type !== 'agent-inference') continue
     const text = stepText(step, 'reasoning')
     if (text.trim()) return text
@@ -356,6 +359,7 @@ export function transcriptFinished(state) {
   if (state.recordText?.trim() && state.recordText === text) return true
   for (let index = state.steps.length - 1; index >= 0; index -= 1) {
     const step = state.steps[index]
+    if (state.excludedIds?.has(step?.id)) continue
     if (step.type === 'agent-inference' && stepText(step, 'text').trim()) return step.completed
   }
   return false

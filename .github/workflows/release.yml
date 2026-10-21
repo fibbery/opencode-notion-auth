@@ -34,6 +34,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
       - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
       - name: test
         # the tests build their own fixtures; a real home is never read
         run: HOME=$(mktemp -d) bun test

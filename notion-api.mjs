@@ -3,6 +3,7 @@
 // endpoints Notion's front end uses, so it can break whenever Notion changes.
 
 import { randomUUID } from 'node:crypto'
+import { notionFetch } from './transport.mjs'
 
 const DEFAULT_ORIGIN = 'https://www.notion.so'
 const USER_AGENT =
@@ -355,21 +356,22 @@ export function buildContextValue(account, { instructions = '' } = {}) {
 }
 
 /**
- * Runs one turn in a new thread. Notion never ends the stream early when a
+ * Runs one turn, optionally appending a partial transcript to a saved thread.
  * client hangs up, so the caller owns the abort signal.
  */
 export async function runInferenceTranscript(
   account,
-  { prompt, notionModel = '', webSearch = false, instructions = '', effort = '', signal, fetchImpl = fetch } = {},
+  { prompt, notionModel = '', webSearch = false, instructions = '', effort = '', threadId: existingThreadId, configId: existingConfigId, updateConfig = false, signal, fetchImpl = notionFetch } = {},
 ) {
-  const threadId = randomUUID()
-  const configId = randomUUID()
+  const threadId = existingThreadId || randomUUID()
+  const configId = existingConfigId || randomUUID()
   const contextId = randomUUID()
-  const transcript = [
+  const transcript = existingThreadId ? [] : [
     { id: configId, type: 'config', value: buildConfigValue({ notionModel, webSearch, effort }) },
     { id: contextId, type: 'context', value: buildContextValue(account, { instructions }) },
   ]
-  if (instructions) {
+  if (existingThreadId && updateConfig) transcript.push({id: configId, type: 'config', value: buildConfigValue({notionModel, webSearch, effort})})
+  if (instructions && !existingThreadId) {
     transcript.push({
       id: randomUUID(),
       type: 'context',
@@ -387,14 +389,14 @@ export async function runInferenceTranscript(
   const body = {
     spaceId: account.spaceId,
     threadId,
-    createThread: true,
+    createThread: !existingThreadId,
     generateTitle: false,
     traceId: randomUUID(),
     transcript,
     threadType: 'workflow',
     asPatchResponse: true,
-    isPartialTranscript: false,
-    saveAllThreadOperations: false,
+    isPartialTranscript: Boolean(existingThreadId),
+    saveAllThreadOperations: true,
     setUnreadState: false,
     createdSource: 'ai_module',
     isUserInAnySalesAssistedSpace: false,
@@ -423,7 +425,7 @@ export async function runInferenceTranscript(
     )
   }
   if (!res.body) throw new NotionError('Notion runInferenceTranscript answered no body')
-  return { response: res, threadId }
+  return { response: res, threadId, configId }
 }
 
 export { FALLBACK_CLIENT_VERSION, USER_AGENT }

@@ -22,6 +22,8 @@ import { finishEmailLogin, startEmailLogin } from './notion-login.mjs'
 import { readBrowserSession } from './browser-cookies.mjs'
 import { applyTranscriptLine, createLineReader, createTranscript, transcriptFinished, transcriptReasoning, transcriptText } from './ndjson.mjs'
 import { buildPrompt, parseToolCalls } from './prompt.mjs'
+import { beginSession, publicMetadata } from './sessions.mjs'
+import { createTurnMetadata } from './usage.mjs'
 
 const PROVIDER = 'notion'
 const VERSION = '0.1.0'
@@ -297,11 +299,13 @@ function errorResponse(error) {
 }
 
 /** Reads Notion's NDJSON reply, reporting the text as it grows. */
-async function consumeTranscript(stream, onProgress, { signal, threadId } = {}) {
+async function consumeTranscript(stream, onProgress, { signal, threadId, excludedIds = [], previousSummary } = {}) {
   const lines = createLineReader()
   const decoder = new TextDecoder()
   const state = createTranscript()
   state.threadId = threadId
+  state.excludedIds = new Set(excludedIds)
+  const metadata = createTurnMetadata(threadId, excludedIds)
   const reader = stream.getReader()
   const abortReason = () => signal?.reason ?? new NotionError('the client stopped waiting for this request')
   const onAbort = () => { Promise.resolve(reader.cancel(abortReason())).catch(() => {}) }
@@ -319,6 +323,7 @@ async function consumeTranscript(stream, onProgress, { signal, threadId } = {}) 
     } catch {
       return
     }
+    metadata.feed(parsed)
     if (!applyTranscriptLine(state, parsed)) return
     const text = transcriptText(state)
     if (text === latest) return
@@ -350,7 +355,7 @@ async function consumeTranscript(stream, onProgress, { signal, threadId } = {}) 
   const text = transcriptText(state) || latest
   if (!text.trim()) throw new NotionError('Notion returned no assistant text or tool call', { status: 502 })
   if (!transcriptFinished(state)) throw new NotionError('Notion stream ended before the assistant finished', { status: 502 })
-  return { text, reasoning: transcriptReasoning(state) }
+  return { text, reasoning: transcriptReasoning(state), ...metadata.result(previousSummary) }
 }
 
 function completionID() {
@@ -358,14 +363,20 @@ function completionID() {
 }
 
 function bufferedMessage(result) {
-  const { content, toolCalls } = parseToolCalls(result.text)
+  const parsed = parseToolCalls(result.text)
+  // A model often omits IDs or repeats call_1. Each completed inference needs
+  // its own namespace so clients cannot pair a new result with an older call.
+  // Buffered replies build this message twice; keep the same IDs both times.
+  const namespace = result.toolCallNamespace ??= completionID()
+  const { content } = parsed
+  const toolCalls = parsed.toolCalls.map((call, index) => ({ ...call, id: `call_${namespace}_${index + 1}` }))
   const message = { role: 'assistant', content: toolCalls.length ? content || null : result.text }
   if (toolCalls.length) message.tool_calls = toolCalls
   if (result.reasoning) message.reasoning_content = result.reasoning
   return { message, toolCalls }
 }
 
-function bufferedResponse({ model, result }) {
+function bufferedResponse({ model, result, threadId, resume }) {
   const { message, toolCalls } = bufferedMessage(result)
   return jsonResponse(200, {
     id: completionID(),
@@ -373,8 +384,9 @@ function bufferedResponse({ model, result }) {
     created: Math.floor(Date.now() / 1000),
     model,
     choices: [{ index: 0, message, finish_reason: toolCalls.length ? 'tool_calls' : 'stop' }],
-    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-  })
+    ...(result.usage ? { usage: result.usage } : {}),
+    notion: publicMetadata(result),
+  }, { 'x-notion-thread-id': threadId, 'x-notion-session-mode': resume ? 'resume' : 'create', 'x-notion-usage-status': result.usageStatus })
 }
 
 /**
@@ -382,7 +394,7 @@ function bufferedResponse({ model, result }) {
  * be told apart from prose until the tag closes, so a request that declared
  * tools is answered in one piece at the end instead of tag by tag.
  */
-function streamingResponse({ model, upstream, signal, threadId, deferContent }) {
+function streamingResponse({ model, upstream, signal, threadId, configId, deferContent, session, sentCharacters, fullCharacters }) {
   const id = completionID()
   const created = Math.floor(Date.now() / 1000)
   const encoder = new TextEncoder()
@@ -408,16 +420,18 @@ function streamingResponse({ model, upstream, signal, threadId, deferContent }) 
                 if (text.length <= emitted.length) return
                 send(chunk({ content: text.slice(emitted.length) }))
               },
-          { signal: transcriptSignal, threadId },
+          { signal: transcriptSignal, threadId, excludedIds: session.excludedIds, previousSummary: session.previousSummary },
         )
         const { message, toolCalls } = bufferedMessage(result)
+        await session.finish({ result, threadId, configId, message, sentCharacters, fullCharacters, requestedModel: model })
+        const metered = payload => ({ ...payload, ...(result.usage ? { usage: result.usage } : {}), notion: publicMetadata(result) })
         if (deferContent) {
-          if (message.content) send(chunk({ content: message.content }))
           if (message.reasoning_content) send(chunk({ reasoning_content: message.reasoning_content }))
+          if (message.content) send(chunk({ content: message.content }))
         }
         if (toolCalls.length) {
           send(
-            chunk(
+            metered(chunk(
               {
                 tool_calls: toolCalls.map((call, index) => ({
                   index,
@@ -427,12 +441,13 @@ function streamingResponse({ model, upstream, signal, threadId, deferContent }) 
                 })),
               },
               'tool_calls',
-            ),
+            )),
           )
         } else {
-          send(chunk({}, 'stop'))
+          send(metered(chunk({}, 'stop')))
         }
       } catch (error) {
+        await session.fail(error)
         send({ error: {
           message: error?.message || 'Notion request failed',
           type: 'api_error',
@@ -452,11 +467,17 @@ function streamingResponse({ model, upstream, signal, threadId, deferContent }) 
   })
   return new Response(body, {
     status: 200,
-    headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' },
+    headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-notion-thread-id': threadId, 'x-notion-session-mode': session.resume ? 'resume' : 'create' },
   })
 }
 
 export const NotionPlugin = async ({ client }) => ({
+  'chat.headers': async (input, output) => {
+    const provider = input?.model?.providerID ?? input?.provider?.info?.id
+    if (provider !== PROVIDER || !input.sessionID) return
+    output.headers ??= {}
+    output.headers['x-notion-session'] = String(input.sessionID)
+  },
   config: async (cfg) => {
     cfg.provider ??= {}
     cfg.provider[PROVIDER] ??= {
@@ -492,32 +513,52 @@ export const NotionPlugin = async ({ client }) => ({
           } catch {
             return errorResponse(new NotionError('the request body was not JSON'))
           }
+          let session
           try {
             const account = await accountFor(auth, client, signal)
-            const built = buildPrompt(body.messages, {
+            const headers = new Headers(init?.headers)
+            const sessionId = headers.get('x-notion-session') || headers.get('x-magpie-session') || ''
+            const webSearch = body.notion_web_search !== false
+            session = await beginSession({ sessionId, account, body, webSearch, signal })
+            const options = {
               tools: body.tools,
-              parallelToolCalls: body.parallel_tool_calls !== false,
-            })
+              webSearch,
+              contextId: session.contextId,
+              contextRefresh: session.contextRefresh,
+            }
+            const full = buildPrompt(body.messages, options)
+            const built = session.resume ? buildPrompt(session.delta, { ...options, continuation: true }) : full
             const requested = typeof body.model === 'string' ? body.model : 'auto'
-            const { response, threadId } = await runInferenceTranscript(account, {
+            const { response, threadId, configId } = await runInferenceTranscript(account, {
               prompt: built.prompt,
+              threadId: session.threadId,
+              configId: session.configId,
+              updateConfig: session.updateConfig,
               notionModel: requested === 'auto' ? '' : requested,
               instructions: built.instructions,
+              webSearch,
               effort: requestedEffort(body),
               signal,
             })
             if (body.stream === false) {
-              const result = await consumeTranscript(response.body, null, { signal, threadId })
-              return bufferedResponse({ model: requested, result })
+              const result = await consumeTranscript(response.body, null, { signal, threadId, excludedIds: session.excludedIds, previousSummary: session.previousSummary })
+              const { message } = bufferedMessage(result)
+              await session.finish({ result, threadId, configId, message, sentCharacters: built.prompt.length, fullCharacters: full.prompt.length, requestedModel: requested })
+              return bufferedResponse({ model: requested, result, threadId, resume: session.resume })
             }
             return streamingResponse({
               model: requested,
               upstream: response.body,
               signal,
               threadId,
+              configId,
               deferContent: built.toolCount > 0,
+              session,
+              sentCharacters: built.prompt.length,
+              fullCharacters: full.prompt.length,
             })
           } catch (error) {
+            await session?.fail(error)
             return errorResponse(error)
           }
         },

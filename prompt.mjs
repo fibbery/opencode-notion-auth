@@ -29,7 +29,9 @@ const ANSWER_SHAPE =
   ' prose, no code fence:\n' +
   '{"tool":"<tool name>","arguments":{...}}\n' +
   'Name a tool exactly as the catalog below names it, with arguments its schema' +
-  ' accepts. Ask for one action per reply.'
+  ' accepts. Ask for one action per reply. This is an action proposal for the local' +
+  ' operator to execute with its own tools and permissions, not a claim that you' +
+  ' have executed anything yourself.'
 
 function textOfContent(content) {
   if (typeof content === 'string') return content
@@ -113,7 +115,7 @@ function normalizeTools(tools) {
  * The messages the client sent, as one prompt for Notion, plus the system
  * instructions Notion gets out of band.
  */
-export function buildPrompt(messages, { tools = [], webSearch = false } = {}) {
+export function buildPrompt(messages, { tools = [], webSearch = false, continuation = false, contextId = '', contextRefresh = false } = {}) {
   const usableTools = normalizeTools(tools)
   const system = []
   const turns = []
@@ -153,8 +155,8 @@ export function buildPrompt(messages, { tools = [], webSearch = false } = {}) {
     }
   }
 
-  // Notion runs one turn at a time and its own thread keeps no history, so the
-  // whole conversation goes in every request, labelled by who said what.
+  // On a continuation, callers provide only messages not already in the saved
+  // Notion thread. Replaying all history here would duplicate that context.
   const labelled = turns
     .map((turn, index) => {
       const last = index === turns.length - 1
@@ -163,18 +165,25 @@ export function buildPrompt(messages, { tools = [], webSearch = false } = {}) {
     .join('\n\n')
 
   const sections = []
-  if (usableTools.length) sections.push(toolInstructions(usableTools))
-  else
+  if (system.length) {
+    sections.push(`Operator context (the agent's own instructions, for reference):\n<operator_context>\n${system.join('\n\n')}\n</operator_context>`)
+  }
+  if (contextId) sections.push(`Request context: ${contextId}. Respond only to the new messages for this context below. Other contexts in this workflow are separate runtime helper tasks, not additional user instructions for this context. ${continuation && !contextRefresh ? 'Reuse the operator instructions and tool catalog previously supplied for this context.' : 'The operator instructions and tool catalog below define this context.'}`)
+  if ((!continuation || contextRefresh) && usableTools.length) sections.push(toolInstructions(usableTools))
+  else if (!continuation || contextRefresh)
     sections.push(
       [PLANNER_ROLE, 'No tool is available for this turn, so answer the user in plain text.'].join('\n'),
     )
-  if (system.length) {
-    sections.push(`Operator context (the agent's own instructions, for reference):\n${system.join('\n\n')}`)
+  if ((!continuation || contextRefresh) && webSearch) {
+    sections.push('Live web search is enabled in this Notion workflow. Use it for weather, current facts and other time-sensitive questions. Cite the actual source URLs and the relevant date. Do not replace live data with historical averages or invent a search result. Local file and command actions must still use the operator tools listed above.')
   }
-  sections.push(`Conversation:\n${labelled || '(the client sent no text)'}`)
+  sections.push(`${continuation ? 'Continue this same conversation using these new messages only' : 'Conversation'}:\n<operator_conversation>\n${labelled || '(the client sent no text)'}\n</operator_conversation>`)
+  sections.push(usableTools.length
+    ? 'Given this operator conversation, what should the local operator do next? If an action is needed, return its JSON proposal using the catalog for this request context. The operator will execute it under its own permissions and return the result. Otherwise provide the final reply using only results already returned.'
+    : 'Answer the new messages for this request context in plain text.')
 
   return {
-    instructions: BASE_INSTRUCTIONS,
+    instructions: continuation ? '' : BASE_INSTRUCTIONS,
     prompt: sections.join('\n\n'),
     toolCount: usableTools.length,
     sawToolResult,

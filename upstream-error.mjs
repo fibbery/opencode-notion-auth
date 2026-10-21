@@ -9,11 +9,11 @@ function rejectStep(step) {
 }
 
 /** Inspect protocol step positions only; arbitrary response content is not an error. */
-export function assertNoUpstreamError(line, { threadId } = {}) {
+export function assertNoUpstreamError(line, { threadId, excludedIds } = {}) {
   if (!line || typeof line !== 'object') return
   rejectStep(line)
   if (line.type === 'patch-start') {
-    for (const step of Array.isArray(line.data?.s) ? line.data.s : []) rejectStep(step)
+    for (const step of Array.isArray(line.data?.s) ? line.data.s : []) if (!excludedIds?.has(step.id)) rejectStep(step)
   }
   if (line.type === 'patch') {
     for (const op of Array.isArray(line.v) ? line.v : []) {
@@ -30,6 +30,7 @@ export function assertNoUpstreamError(line, { threadId } = {}) {
     const rawThread = threadId ? threads[threadId] : Object.values(threads)[0]
     const thread = rawThread?.value?.value ?? rawThread?.value ?? rawThread
     for (const id of Array.isArray(thread?.messages) ? thread.messages : []) {
+      if (excludedIds?.has(id)) continue
       const raw = line.recordMap?.thread_message?.[id]
       rejectStep((raw?.value?.value ?? raw?.value ?? raw)?.step)
     }
