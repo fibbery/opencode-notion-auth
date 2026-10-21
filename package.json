@@ -11,6 +11,7 @@
     "browser-cookies.mjs",
     "cookies.mjs",
     "ndjson.mjs",
+    "upstream-error.mjs",
     "prompt.mjs",
     "README.md",
     "LICENSE"
