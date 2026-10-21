@@ -122,6 +122,14 @@ produced one, with 3–13 s a turn. That is not a success rate, only what a
 few runs looked like; treat the emulation as suited to light work rather
 than to a main agent loop.
 
+## Inference failures and cancellation
+
+Upstream error steps are reported as failures rather than empty successful
+answers. Buffered failures return HTTP 502; streams emit an error event without
+a successful finish reason. Empty output and EOF before assistant completion
+also fail visibly. Cancelling a request or its response stream cancels the
+locked upstream reader.
+
 ## Notes
 
 `getAvailableModels` and `runInferenceTranscript` are internal endpoints

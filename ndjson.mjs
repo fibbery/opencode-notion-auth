@@ -11,6 +11,8 @@
 // and its `p` a JSON pointer: "/s/-" appends a step, "/s/<i>/value/<j>/content"
 // touches one value of one step, "/s/<i>/finishedAt" ends it.
 
+import { assertNoUpstreamError } from './upstream-error.mjs'
+
 const STEP_PREFIX = /^\/s\/(\d+)(\/[\s\S]*)?$/
 
 /** A stream of bytes → complete lines, without holding a partial one. */
@@ -103,9 +105,10 @@ function applyPatchStart(state, line) {
 
 function messageIDsOf(recordMap, threadId) {
   const threads = recordMap?.thread ?? {}
-  const order = threadId && threads[threadId] ? [threadId, ...Object.keys(threads).filter((id) => id !== threadId)] : Object.keys(threads)
+  const order = threadId ? [threadId] : Object.keys(threads).slice(0, 1)
   for (const id of order) {
-    const value = recordMap?.thread?.[id]?.value?.value
+    const raw = threads[id]
+    const value = raw?.value?.value ?? raw?.value ?? raw
     if (Array.isArray(value?.messages)) return value.messages
   }
   return []
@@ -120,7 +123,8 @@ export function readRecordMap(recordMap, threadId) {
   let text = ''
   let reasoning = ''
   for (const id of messageIDsOf(recordMap, threadId)) {
-    const step = messages?.[id]?.value?.value?.step
+    const raw = messages[id]
+    const step = (raw?.value?.value ?? raw?.value ?? raw)?.step
     if (!step || step.type !== 'agent-inference') continue
     const parts = Array.isArray(step.value) ? step.value : []
     let stepText = ''
@@ -287,6 +291,7 @@ function applyAgentInference(state, line) {
 
 /** Applies one parsed NDJSON object; true when the reply's text may have moved. */
 export function applyTranscriptLine(state, line) {
+  assertNoUpstreamError(line, { threadId: state.threadId })
   if (!line || typeof line !== 'object') return false
   state.lineCount += 1
   switch (line.type) {
@@ -347,9 +352,11 @@ export function transcriptReasoning(state) {
 }
 
 export function transcriptFinished(state) {
+  const text = transcriptText(state)
+  if (state.recordText?.trim() && state.recordText === text) return true
   for (let index = state.steps.length - 1; index >= 0; index -= 1) {
     const step = state.steps[index]
-    if (step.type === 'agent-inference' && step.completed) return true
+    if (step.type === 'agent-inference' && stepText(step, 'text').trim()) return step.completed
   }
   return false
 }

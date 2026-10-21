@@ -20,7 +20,7 @@ import {
 } from './notion-api.mjs'
 import { finishEmailLogin, startEmailLogin } from './notion-login.mjs'
 import { readBrowserSession } from './browser-cookies.mjs'
-import { applyTranscriptLine, createLineReader, createTranscript, transcriptReasoning, transcriptText } from './ndjson.mjs'
+import { applyTranscriptLine, createLineReader, createTranscript, transcriptFinished, transcriptReasoning, transcriptText } from './ndjson.mjs'
 import { buildPrompt, parseToolCalls } from './prompt.mjs'
 
 const PROVIDER = 'notion'
@@ -281,7 +281,7 @@ function jsonResponse(status, body, extraHeaders = {}) {
 
 function errorResponse(error) {
   const expired = error?.signIn === 'expired'
-  const status = expired ? 401 : 502
+  const status = expired ? 401 : error?.status === 503 ? 503 : 502
   const headers = expired ? { 'x-magpie-sign-in': 'expired' } : {}
   return jsonResponse(
     status,
@@ -303,6 +303,10 @@ async function consumeTranscript(stream, onProgress, { signal, threadId } = {}) 
   const state = createTranscript()
   state.threadId = threadId
   const reader = stream.getReader()
+  const abortReason = () => signal?.reason ?? new NotionError('the client stopped waiting for this request')
+  const onAbort = () => { Promise.resolve(reader.cancel(abortReason())).catch(() => {}) }
+  signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted) onAbort()
   let emitted = ''
   let latest = ''
 
@@ -325,21 +329,28 @@ async function consumeTranscript(stream, onProgress, { signal, threadId } = {}) 
 
   try {
     for (;;) {
+      if (signal?.aborted) throw abortReason()
       const { value, done } = await reader.read()
+      if (signal?.aborted) throw abortReason()
       if (done) break
       for (const line of lines.push(decoder.decode(value, { stream: true }))) await feed(line)
     }
     const tail = decoder.decode()
     for (const line of [...lines.push(tail), ...lines.flush()]) await feed(line)
   } finally {
+    signal?.removeEventListener('abort', onAbort)
     try {
       await reader.cancel()
     } catch {
       // the stream is over either way
     }
+    reader.releaseLock()
   }
-  if (signal?.aborted) throw new NotionError('the client stopped waiting for this request')
-  return { text: transcriptText(state) || latest, reasoning: transcriptReasoning(state) }
+  if (signal?.aborted) throw abortReason()
+  const text = transcriptText(state) || latest
+  if (!text.trim()) throw new NotionError('Notion returned no assistant text or tool call', { status: 502 })
+  if (!transcriptFinished(state)) throw new NotionError('Notion stream ended before the assistant finished', { status: 502 })
+  return { text, reasoning: transcriptReasoning(state) }
 }
 
 function completionID() {
@@ -375,9 +386,12 @@ function streamingResponse({ model, upstream, signal, threadId, deferContent }) 
   const id = completionID()
   const created = Math.floor(Date.now() / 1000)
   const encoder = new TextEncoder()
+  const cancellation = new AbortController()
+  const transcriptSignal = signal ? AbortSignal.any([signal, cancellation.signal]) : cancellation.signal
+  let cancelled = false
   const body = new ReadableStream({
     async start(controller) {
-      const send = (payload) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
+      const send = (payload) => { if (!cancelled) controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`)) }
       const chunk = (delta, finishReason) => ({
         id,
         object: 'chat.completion.chunk',
@@ -394,7 +408,7 @@ function streamingResponse({ model, upstream, signal, threadId, deferContent }) 
                 if (text.length <= emitted.length) return
                 send(chunk({ content: text.slice(emitted.length) }))
               },
-          { signal, threadId },
+          { signal: transcriptSignal, threadId },
         )
         const { message, toolCalls } = bufferedMessage(result)
         if (deferContent) {
@@ -419,14 +433,21 @@ function streamingResponse({ model, upstream, signal, threadId, deferContent }) 
           send(chunk({}, 'stop'))
         }
       } catch (error) {
-        send({ ...chunk({}, 'stop'), error: { message: error?.message || 'Notion request failed', type: 'api_error' } })
+        send({ error: {
+          message: error?.message || 'Notion request failed',
+          type: 'api_error',
+          code: error?.subType || 'notion_upstream_error',
+        } })
       } finally {
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-        controller.close()
+        if (!cancelled) {
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+        }
       }
     },
-    cancel() {
-      Promise.resolve(upstream?.cancel?.()).catch(() => {})
+    cancel(reason) {
+      cancelled = true
+      cancellation.abort(reason instanceof Error ? reason : new Error('the client stopped waiting for this request'))
     },
   })
   return new Response(body, {
